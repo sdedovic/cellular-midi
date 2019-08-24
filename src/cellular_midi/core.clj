@@ -1,4 +1,5 @@
 (ns cellular-midi.core
+  (:import (javax.sound.midi ShortMessage))
   (:require [midi :as m])
   (:require [clojure.set :as set]))
 
@@ -94,11 +95,56 @@
       
       (and (= group 0) (= amt :high))
       32
+
+      (and (= group 1) (= amt :low))
+      14
       
-      :else 0)))
+      (and (= group 1) (= amt :high))
+      15
+
+      (and (= group 2) (= amt :low))
+      25
+      
+      (and (= group 2) (= amt :high))
+      19
+      
+      (and (= group 3) (= amt :low))
+      16
+      
+      (and (= group 3) (= amt :high))
+      32
+
+      (and (= group 4) (= amt :low))
+      14
+      
+      (and (= group 4) (= amt :high))
+      15
+
+      (and (= group 5) (= amt :low))
+      25
+      
+      (and (= group 5) (= amt :high))
+      19
+      
+      (and (= group 6) (= amt :low))
+      16
+      
+      (and (= group 6) (= amt :high))
+      32
+
+      (and (= group 7) (= amt :low))
+      14
+      
+      (and (= group 7) (= amt :high))
+      15
+
+     :else 0)))
 
 (def lp-out (m/midi-out))
 (def lp-in (m/midi-in))
+(def modular (m/midi-out))
+
+
 
 (def state (atom {:board #{[2 2] [3 2] [4 2]}
                   :groups [#{} #{} #{} #{} #{} #{} #{} #{}]
@@ -129,12 +175,12 @@
               (update-in state [:groups group] conj cell)))))
 
       ;; group 1
-      (and (= 0 vel) (= 144 cmd) (= 8 note))
-      (do
-        (m/midi-note-on lp-out (cell-to-note [8 0]) 32)
+      (and (= 0 vel) (= 144 cmd) (some #(= note %) [8 24 40 56 72 88 104 120]))
+      (let [group (/ (- note 8) 16)]
+        (m/midi-note-on lp-out note (group-to-vel group :high))
         (-> state
           (assoc :render :group)
-          (assoc :group 0)))
+          (assoc :group group)))
 
       ;; top left
       (and (= 0 vel) (= 104 note) (= 176 cmd))
@@ -148,16 +194,24 @@
       
       :else state)))
 
+(defn midi-cc-send [output chan cc vel]
+  (let [msg (ShortMessage.)]
+    (.setMessage msg ShortMessage/CONTROL_CHANGE chan cc vel)
+    (.send (:receiver output) msg -1)))
+
 (defn update-state [state]
   (let [board-notes (set (map cell-to-note (:board state)))
         groups-notes (map #(set (map cell-to-note %)) (:groups state))]
     (doseq [[idx cells] (map-indexed vector groups-notes)]
       (let [hits (set/intersection board-notes cells)
             any? (> (count hits) 0)]
-        (println any?)
         (if any?
-          (m/midi-note-on lp-out (cell-to-note [8 idx]) (group-to-vel idx :high))
-          (m/midi-note-on lp-out (cell-to-note [8 idx]) (group-to-vel idx :low))))))
+          (do
+            (midi-cc-send modular (+ 1 idx) 1 127)
+            (m/midi-note-on lp-out (cell-to-note [8 idx]) (group-to-vel idx :high)))
+          (do
+            (midi-cc-send modular (+ 1 idx) 1 0)
+            (m/midi-note-on lp-out (cell-to-note [8 idx]) (group-to-vel idx :low)))))))
   (update state :board tick))
 
 (defn draw [state]
